@@ -54,70 +54,65 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-          # 破除Kconfig循环依赖
+          # 删除造成递归依赖的源码，让Kconfig看不到这两个选项
           rm -rf feeds/packages/net/clixon
-          rm -f feeds/packages/net/freeradius3/Config.in feeds/packages/net/freeradius3/Makefile
-          rm -f package/network/utils/nftables/Config.in.nojson 2>/dev/null || true
+          rm -rf package/network/utils/nftables-nojson
 
-      - name: Generate base defconfig + apply config switches
+      - name: Generate defconfig && sed modify .config
         run: |
           cd $GITHUB_WORKSPACE/openwrt
           rm -rf tmp/ .config*
           make defconfig CONFIG_NON_INTERACTIVE=1
 
-          # 使用正确工具 scripts/config.py
-          ./scripts/config.py --set-val TARGET_qualcommax y
-          ./scripts/config.py --set-val TARGET_qualcommax_ipq60xx y
-          ./scripts/config.py --set-val TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_ss_01 y
-          ./scripts/config.py --set-val DEVEL y
-          ./scripts/config.py --set-val TOOLCHAINOPTS y
+          # sed开启目标设备与需要包，直接写进.config
+          sed -i 's/# CONFIG_TARGET_qualcommax is not set/CONFIG_TARGET_qualcommax=y/' .config
+          sed -i 's/# CONFIG_TARGET_qualcommax_ipq60xx is not set/CONFIG_TARGET_qualcommax_ipq60xx=y/' .config
+          sed -i 's/# CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_ss_01 is not set/CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_ss_01=y/' .config
 
-          ./scripts/config.py --set-val PACKAGE_ppp y
-          ./scripts/config.py --set-val PACKAGE_ppp-mod-pppoe y
-          ./scripts/config.py --set-val PACKAGE_ip-full y
-          ./scripts/config.py --set-val PACKAGE_ip6tables y
-          ./scripts/config.py --set-val PACKAGE_iptables y
-          ./scripts/config.py --set-val PACKAGE_kmod-ipt-nat y
-          ./scripts/config.py --set-val PACKAGE_kmod-ipt-nat6 y
+          sed -i 's/# CONFIG_PACKAGE_ppp is not set/CONFIG_PACKAGE_ppp=y/' .config
+          sed -i 's/# CONFIG_PACKAGE_ppp-mod-pppoe is not set/CONFIG_PACKAGE_ppp-mod-pppoe=y/' .config
+          sed -i 's/# CONFIG_PACKAGE_ip-full is not set/CONFIG_PACKAGE_ip-full=y/' .config
+          sed -i 's/# CONFIG_PACKAGE_ip6tables is not set/CONFIG_PACKAGE_ip6tables=y/' .config
+          sed -i 's/# CONFIG_PACKAGE_iptables is not set/CONFIG_PACKAGE_iptables=y/' .config
+          sed -i 's/# CONFIG_PACKAGE_kmod-ipt-nat is not set/CONFIG_PACKAGE_kmod-ipt-nat=y/' .config
+          sed -i 's/# CONFIG_PACKAGE_kmod-ipt-nat6 is not set/CONFIG_PACKAGE_kmod-ipt-nat6=y/' .config
 
-          ./scripts/config.py --set-val PACKAGE_kmod-usb-core y
-          ./scripts/config.py --set-val PACKAGE_kmod-usb-serial y
-          ./scripts/config.py --set-val PACKAGE_kmod-usb-serial-option y
-          ./scripts/config.py --set-val PACKAGE_kmod-usb-serial-wwan y
-          ./scripts/config.py --set-val PACKAGE_kmod-usb-net y
-          ./scripts/config.py --set-val PACKAGE_kmod-usb-net-cdc-ecm y
-          ./scripts/config.py --set-val PACKAGE_kmod-usb-net-rndis y
-          ./scripts/config.py --set-val PACKAGE_kmod-usb-net-qmi-wwan y
-          ./scripts/config.py --set-val PACKAGE_kmod-usb-net-cdc-mbim y
-          ./scripts/config.py --set-val PACKAGE_kmod-usb-net-huawei-cdc-ncm y
-          ./scripts/config.py --set-val PACKAGE_kmod-usb-storage y
-          ./scripts/config.py --set-val PACKAGE_kmod-usb-storage-uas y
+          sed -i 's/# CONFIG_PACKAGE_kmod-usb-core is not set/CONFIG_PACKAGE_kmod-usb-core=y/' .config
+          sed -i 's/# CONFIG_PACKAGE_kmod-usb-serial is not set/CONFIG_PACKAGE_kmod-usb-serial=y/' .config
+          sed -i 's/# CONFIG_PACKAGE_kmod-usb-serial-option is not set/CONFIG_PACKAGE_kmod-usb-serial-option=y/' .config
+          sed -i 's/# CONFIG_PACKAGE_kmod-usb-serial-wwan is not set/CONFIG_PACKAGE_kmod-usb-serial-wwan=y/' .config
+          sed -i 's/# CONFIG_PACKAGE_kmod-usb-net is not set/CONFIG_PACKAGE_kmod-usb-net=y/' .config
+          sed -i 's/# CONFIG_PACKAGE_kmod-usb-net-cdc-ecm is not set/CONFIG_PACKAGE_kmod-usb-net-cdc-ecm=y/' .config
+          sed -i 's/# CONFIG_PACKAGE_kmod-usb-net-rndis is not set/CONFIG_PACKAGE_kmod-usb-net-rndis=y/' .config
+          sed -i 's/# CONFIG_PACKAGE_kmod-usb-net-qmi-wwan is not set/CONFIG_PACKAGE_kmod-usb-net-qmi-wwan=y/' .config
+          sed -i 's/# CONFIG_PACKAGE_kmod-usb-net-cdc-mbim is not set/CONFIG_PACKAGE_kmod-usb-net-cdc-mbim=y/' .config
+          sed -i 's/# CONFIG_PACKAGE_kmod-usb-net-huawei-cdc-ncm is not set/CONFIG_PACKAGE_kmod-usb-net-huawei-cdc-ncm=y/' .config
+          sed -i 's/# CONFIG_PACKAGE_kmod-usb-storage is not set/CONFIG_PACKAGE_kmod-usb-storage=y/' .config
+          sed -i 's/# CONFIG_PACKAGE_kmod-usb-storage-uas is not set/CONFIG_PACKAGE_kmod-usb-storage-uas=y/' .config
 
-          ./scripts/config.py --set-val PACKAGE_curl y
-          ./scripts/config.py --set-val PACKAGE_usbutils y
-          ./scripts/config.py --set-val PACKAGE_socat y
-          ./scripts/config.py --set-val PACKAGE_nano y
-          ./scripts/config.py --set-val PACKAGE_tc y
-          ./scripts/config.py --set-val PACKAGE_iperf3 y
+          sed -i 's/# CONFIG_PACKAGE_curl is not set/CONFIG_PACKAGE_curl=y/' .config
+          sed -i 's/# CONFIG_PACKAGE_usbutils is not set/CONFIG_PACKAGE_usbutils=y/' .config
+          sed -i 's/# CONFIG_PACKAGE_socat is not set/CONFIG_PACKAGE_socat=y/' .config
+          sed -i 's/# CONFIG_PACKAGE_nano is not set/CONFIG_PACKAGE_nano=y/' .config
+          sed -i 's/# CONFIG_PACKAGE_tc is not set/CONFIG_PACKAGE_tc=y/' .config
+          sed -i 's/# CONFIG_PACKAGE_iperf3 is not set/CONFIG_PACKAGE_iperf3=y/' .config
 
-          ./scripts/config.py --set-val PACKAGE_kmod-fs-ext4 y
-          ./scripts/config.py --set-val PACKAGE_kmod-fs-vfat y
-          ./scripts/config.py --set-val PACKAGE_kmod-fs-exfat y
-          ./scripts/config.py --set-val PACKAGE_ntfs-3g y
-          ./scripts/config.py --set-val PACKAGE_block-mount y
-          ./scripts/config.py --set-val PACKAGE_fdisk y
+          sed -i 's/# CONFIG_PACKAGE_kmod-fs-ext4 is not set/CONFIG_PACKAGE_kmod-fs-ext4=y/' .config
+          sed -i 's/# CONFIG_PACKAGE_kmod-fs-vfat is not set/CONFIG_PACKAGE_kmod-fs-vfat=y/' .config
+          sed -i 's/# CONFIG_PACKAGE_kmod-fs-exfat is not set/CONFIG_PACKAGE_kmod-fs-exfat=y/' .config
+          sed -i 's/# CONFIG_PACKAGE_ntfs-3g is not set/CONFIG_PACKAGE_ntfs-3g=y/' .config
+          sed -i 's/# CONFIG_PACKAGE_block-mount is not set/CONFIG_PACKAGE_block-mount=y/' .config
+          sed -i 's/# CONFIG_PACKAGE_fdisk is not set/CONFIG_PACKAGE_fdisk=y/' .config
 
-          ./scripts/config.py --set-val PACKAGE_qmodem y
-          ./scripts/config.py --set-val PACKAGE_luci-app-qmodem-next y
-          ./scripts/config.py --set-val NSS_FIRMWARE y
+          sed -i 's/# CONFIG_PACKAGE_qmodem is not set/CONFIG_PACKAGE_qmodem=y/' .config
+          sed -i 's/# CONFIG_PACKAGE_luci-app-qmodem-next is not set/CONFIG_PACKAGE_luci-app-qmodem-next=y/' .config
+          sed -i 's/# CONFIG_NSS_FIRMWARE is not set/CONFIG_NSS_FIRMWARE=y/' .config
 
-          # 强制关闭循环依赖 nftables-nojson
-          ./scripts/config.py --unset PACKAGE_nftables-nojson
-
+          # 归一化配置，自动清理无效选项
           make defconfig CONFIG_NON_INTERACTIVE=1
 
-          echo "==== Verify target & qmodem ===="
-          grep -E "CONFIG_TARGET_qualcommax|CONFIG_PACKAGE_qmodem|CONFIG_PACKAGE_nftables-nojson" .config
+          echo "==== Verify config ===="
+          grep -E "CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_ss_01|CONFIG_PACKAGE_qmodem" .config
 
       - name: Build firmware
         run: |
