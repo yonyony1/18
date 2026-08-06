@@ -1,0 +1,139 @@
+name: JDCloud AX1800 jdcloud_re-ss-01 QModem RM500U
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    env:
+      TERM: dumb
+      CONFIG_NON_INTERACTIVE: 1
+    timeout-minutes: 360
+    steps:
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get full-upgrade -y
+          sudo apt-get install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+            bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex gawk gettext gcc-multilib \
+            g++-multilib git gnutls-dev gperf haveged help2man intltool lib32gcc-s1 libc6-dev-i386 libelf-dev \
+            libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses-dev libreadline-dev \
+            libssl-dev libtool libyaml-dev lld llvm lrzsz mkisofs msmtp nano ninja-build p7zip-full patch pkgconf \
+            python3 python3-pip python3-ply python3-docutils python3-pyelftools qemu-utils re2c rsync scons \
+            squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip wget xmlto xxd zlib1g-dev
+          git config --global core.askpass ""
+          git config --global credential.helper ""
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ax1800-qmodem-ccache
+
+      - name: Clone VIKINGYFY/immortalwrt
+        run: |
+          git clone --depth 1 --branch main https://github.com/VIKINGYFY/immortalwrt openwrt
+          cd openwrt
+          test -d target/linux/qualcommax || exit 1
+
+      - name: Feeds configure & update & install
+        run: |
+          cd $GITHUB_WORKSPACE/openwrt
+          cat > feeds.conf.default <<-'EOF'
+          src-git packages https://github.com/immortalwrt/packages.git
+          src-git luci https://github.com/immortalwrt/luci.git
+          src-git routing https://github.com/openwrt/routing.git
+          src-git telephony https://github.com/openwrt/telephony.git
+          src-git qmodem https://github.com/FUjr/QModem.git;main
+          EOF
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+          # 修复Kconfig循环依赖 freeradius3
+          rm -f feeds/packages/net/freeradius3/Config.in feeds/packages/net/freeradius3/Makefile
+          # 修复 nftables-nojson 自循环依赖
+          rm -f package/network/utils/nftables/Config.in.nojson 2>/dev/null || true
+
+      - name: Create config fragment
+        run: |
+          cd $GITHUB_WORKSPACE/openwrt
+          rm -rf tmp/ .config* config/
+          mkdir -p config
+          cat > config/fragment <<-'EOF'
+          CONFIG_TARGET_qualcommax=y
+          CONFIG_TARGET_qualcommax_ipq60xx=y
+          CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_ss_01=y
+          CONFIG_DEVEL=y
+          CONFIG_TOOLCHAINOPTS=y
+
+          CONFIG_PACKAGE_ppp=y
+          CONFIG_PACKAGE_ppp-mod-pppoe=y
+          CONFIG_PACKAGE_ip-full=y
+          CONFIG_PACKAGE_ip6tables=y
+          CONFIG_PACKAGE_iptables=y
+          CONFIG_PACKAGE_kmod-ipt-nat=y
+          CONFIG_PACKAGE_kmod-ipt-nat6=y
+
+          # USB 5G模组驱动
+          CONFIG_PACKAGE_kmod-usb-core=y
+          CONFIG_PACKAGE_kmod-usb-serial=y
+          CONFIG_PACKAGE_kmod-usb-serial-option=y
+          CONFIG_PACKAGE_kmod-usb-serial-wwan=y
+          CONFIG_PACKAGE_kmod-usb-net=y
+          CONFIG_PACKAGE_kmod-usb-net-cdc-ecm=y
+          CONFIG_PACKAGE_kmod-usb-net-rndis=y
+          CONFIG_PACKAGE_kmod-usb-net-qmi-wwan=y
+          CONFIG_PACKAGE_kmod-usb-net-cdc-mbim=y
+          CONFIG_PACKAGE_kmod-usb-net-huawei-cdc-ncm=y
+          CONFIG_PACKAGE_kmod-usb-storage=y
+          CONFIG_PACKAGE_kmod-usb-storage-uas=y
+
+          CONFIG_PACKAGE_curl=y
+          CONFIG_PACKAGE_usbutils=y
+          CONFIG_PACKAGE_socat=y
+          CONFIG_PACKAGE_nano=y
+          CONFIG_PACKAGE_tc=y
+          CONFIG_PACKAGE_iperf3=y
+
+          # 文件系统
+          CONFIG_PACKAGE_kmod-fs-ext4=y
+          CONFIG_PACKAGE_kmod-fs-vfat=y
+          CONFIG_PACKAGE_kmod-fs-exfat=y
+          CONFIG_PACKAGE_ntfs-3g=y
+          CONFIG_PACKAGE_block-mount=y
+          CONFIG_PACKAGE_fdisk=y
+
+          # QModem
+          CONFIG_PACKAGE_qmodem=y
+          CONFIG_PACKAGE_luci-app-qmodem-next=y
+
+          # NSS firmware
+          CONFIG_NSS_FIRMWARE=y
+          EOF
+
+          make defconfig CONFIG_NON_INTERACTIVE=1
+          echo "==== Verify target & qmodem ===="
+          grep -E "CONFIG_TARGET_qualcommax|CONFIG_PACKAGE_qmodem" .config
+
+      - name: Build firmware
+        run: |
+          cd $GITHUB_WORKSPACE/openwrt
+          export CCACHE_DIR=~/.ccache
+          export CCACHE_COMPRESS=1
+          ccache -M 4G
+          ccache -z
+          make -j1 V=s 2>&1 | tee build.log
+          ccache -s
+
+      - name: Artifact upload
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: AX1800-QModem-RM500U-Firmware
+          path: |
+            openwrt/build.log
+            openwrt/.config
+            openwrt/bin/targets/qualcommax/ipq60xx
+          retention-days: 7
