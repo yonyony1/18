@@ -54,7 +54,8 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-          # 修复Kconfig循环依赖
+          # 破除Kconfig循环依赖
+          rm -rf feeds/packages/net/clixon
           rm -f feeds/packages/net/freeradius3/Config.in feeds/packages/net/freeradius3/Makefile
           rm -f package/network/utils/nftables/Config.in.nojson 2>/dev/null || true
 
@@ -62,60 +63,61 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/openwrt
           rm -rf tmp/ .config*
-          # 生成基础配置，不要碰源码自带config文件夹！！
           make defconfig CONFIG_NON_INTERACTIVE=1
 
-          # 使用scripts/config 逐条开启配置
-          ./scripts/config --set-val TARGET_qualcommax y
-          ./scripts/config --set-val TARGET_qualcommax_ipq60xx y
-          ./scripts/config --set-val TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_ss_01 y
-          ./scripts/config --set-val DEVEL y
-          ./scripts/config --set-val TOOLCHAINOPTS y
+          # 使用正确工具 scripts/config.py
+          ./scripts/config.py --set-val TARGET_qualcommax y
+          ./scripts/config.py --set-val TARGET_qualcommax_ipq60xx y
+          ./scripts/config.py --set-val TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_ss_01 y
+          ./scripts/config.py --set-val DEVEL y
+          ./scripts/config.py --set-val TOOLCHAINOPTS y
 
-          ./scripts/config --set-val PACKAGE_ppp y
-          ./scripts/config --set-val PACKAGE_ppp-mod-pppoe y
-          ./scripts/config --set-val PACKAGE_ip-full y
-          ./scripts/config --set-val PACKAGE_ip6tables y
-          ./scripts/config --set-val PACKAGE_iptables y
-          ./scripts/config --set-val PACKAGE_kmod-ipt-nat y
-          ./scripts/config --set-val PACKAGE_kmod-ipt-nat6 y
+          ./scripts/config.py --set-val PACKAGE_ppp y
+          ./scripts/config.py --set-val PACKAGE_ppp-mod-pppoe y
+          ./scripts/config.py --set-val PACKAGE_ip-full y
+          ./scripts/config.py --set-val PACKAGE_ip6tables y
+          ./scripts/config.py --set-val PACKAGE_iptables y
+          ./scripts/config.py --set-val PACKAGE_kmod-ipt-nat y
+          ./scripts/config.py --set-val PACKAGE_kmod-ipt-nat6 y
 
-          ./scripts/config --set-val PACKAGE_kmod-usb-core y
-          ./scripts/config --set-val PACKAGE_kmod-usb-serial y
-          ./scripts/config --set-val PACKAGE_kmod-usb-serial-option y
-          ./scripts/config --set-val PACKAGE_kmod-usb-serial-wwan y
-          ./scripts/config --set-val PACKAGE_kmod-usb-net y
-          ./scripts/config --set-val PACKAGE_kmod-usb-net-cdc-ecm y
-          ./scripts/config --set-val PACKAGE_kmod-usb-net-rndis y
-          ./scripts/config --set-val PACKAGE_kmod-usb-net-qmi-wwan y
-          ./scripts/config --set-val PACKAGE_kmod-usb-net-cdc-mbim y
-          ./scripts/config --set-val PACKAGE_kmod-usb-net-huawei-cdc-ncm y
-          ./scripts/config --set-val PACKAGE_kmod-usb-storage y
-          ./scripts/config --set-val PACKAGE_kmod-usb-storage-uas y
+          ./scripts/config.py --set-val PACKAGE_kmod-usb-core y
+          ./scripts/config.py --set-val PACKAGE_kmod-usb-serial y
+          ./scripts/config.py --set-val PACKAGE_kmod-usb-serial-option y
+          ./scripts/config.py --set-val PACKAGE_kmod-usb-serial-wwan y
+          ./scripts/config.py --set-val PACKAGE_kmod-usb-net y
+          ./scripts/config.py --set-val PACKAGE_kmod-usb-net-cdc-ecm y
+          ./scripts/config.py --set-val PACKAGE_kmod-usb-net-rndis y
+          ./scripts/config.py --set-val PACKAGE_kmod-usb-net-qmi-wwan y
+          ./scripts/config.py --set-val PACKAGE_kmod-usb-net-cdc-mbim y
+          ./scripts/config.py --set-val PACKAGE_kmod-usb-net-huawei-cdc-ncm y
+          ./scripts/config.py --set-val PACKAGE_kmod-usb-storage y
+          ./scripts/config.py --set-val PACKAGE_kmod-usb-storage-uas y
 
-          ./scripts/config --set-val PACKAGE_curl y
-          ./scripts/config --set-val PACKAGE_usbutils y
-          ./scripts/config --set-val PACKAGE_socat y
-          ./scripts/config --set-val PACKAGE_nano y
-          ./scripts/config --set-val PACKAGE_tc y
-          ./scripts/config --set-val PACKAGE_iperf3 y
+          ./scripts/config.py --set-val PACKAGE_curl y
+          ./scripts/config.py --set-val PACKAGE_usbutils y
+          ./scripts/config.py --set-val PACKAGE_socat y
+          ./scripts/config.py --set-val PACKAGE_nano y
+          ./scripts/config.py --set-val PACKAGE_tc y
+          ./scripts/config.py --set-val PACKAGE_iperf3 y
 
-          ./scripts/config --set-val PACKAGE_kmod-fs-ext4 y
-          ./scripts/config --set-val PACKAGE_kmod-fs-vfat y
-          ./scripts/config --set-val PACKAGE_kmod-fs-exfat y
-          ./scripts/config --set-val PACKAGE_ntfs-3g y
-          ./scripts/config --set-val PACKAGE_block-mount y
-          ./scripts/config --set-val PACKAGE_fdisk y
+          ./scripts/config.py --set-val PACKAGE_kmod-fs-ext4 y
+          ./scripts/config.py --set-val PACKAGE_kmod-fs-vfat y
+          ./scripts/config.py --set-val PACKAGE_kmod-fs-exfat y
+          ./scripts/config.py --set-val PACKAGE_ntfs-3g y
+          ./scripts/config.py --set-val PACKAGE_block-mount y
+          ./scripts/config.py --set-val PACKAGE_fdisk y
 
-          ./scripts/config --set-val PACKAGE_qmodem y
-          ./scripts/config --set-val PACKAGE_luci-app-qmodem-next y
-          ./scripts/config --set-val NSS_FIRMWARE y
+          ./scripts/config.py --set-val PACKAGE_qmodem y
+          ./scripts/config.py --set-val PACKAGE_luci-app-qmodem-next y
+          ./scripts/config.py --set-val NSS_FIRMWARE y
 
-          # 同步更新 .config
+          # 强制关闭循环依赖 nftables-nojson
+          ./scripts/config.py --unset PACKAGE_nftables-nojson
+
           make defconfig CONFIG_NON_INTERACTIVE=1
 
           echo "==== Verify target & qmodem ===="
-          grep -E "CONFIG_TARGET_qualcommax|CONFIG_PACKAGE_qmodem" .config
+          grep -E "CONFIG_TARGET_qualcommax|CONFIG_PACKAGE_qmodem|CONFIG_PACKAGE_nftables-nojson" .config
 
       - name: Build firmware
         run: |
