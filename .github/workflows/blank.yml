@@ -14,6 +14,7 @@ on:
 
 env:
   TZ: Asia/Shanghai
+  SRC_ROOT: /opt/sy108-src
   OPENWRT_PATH: /opt/openwrt
   CCACHE_DIR: /opt/ccache
   SY108_REPO: https://github.com/yonyony1/sy108-mainline.git
@@ -32,13 +33,30 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential flex bison git libssl-dev libelf-dev \
             ncurses-dev python3 python3-pip unzip wget rsync file cpio ccache
-          sudo mkdir -p "${OPENWRT_PATH}" "${CCACHE_DIR}"
-          sudo chown -R runner:runner "${OPENWRT_PATH}" "${CCACHE_DIR}"
+          sudo mkdir -p "${SRC_ROOT}" "${OPENWRT_PATH}" "${CCACHE_DIR}"
+          sudo chown -R runner:runner "${SRC_ROOT}" "${OPENWRT_PATH}" "${CCACHE_DIR}"
 
-      - name: 拉取 sy108-mainline 主源码
+      - name: 拉取 sy108-mainline 仓库
         run: |
+          rm -rf "${SRC_ROOT}"
+          git clone --depth 1 -b "${SY108_BRANCH}" "${SY108_REPO}" "${SRC_ROOT}"
+
+      - name: 定位真实 OpenWrt 源码目录并复制
+        run: |
+          # 查找包含顶层 Makefile + scripts/config 的目录
+          REAL_OPENWRT=$(find "${SRC_ROOT}" -type f -name Makefile | while read mk; do
+            d=$(dirname "$mk")
+            if [ -d "$d/scripts/config" ]; then echo "$d"; break; fi
+          done)
+          if [ -z "${REAL_OPENWRT}" ]; then
+            echo "❌ 找不到 OpenWrt 源码目录"
+            exit 1
+          fi
+          echo "✅ 找到 OpenWrt 源码：${REAL_OPENWRT}"
           rm -rf "${OPENWRT_PATH}"
-          git clone --depth 1 -b "${SY108_BRANCH}" "${SY108_REPO}" "${OPENWRT_PATH}"
+          cp -r "${REAL_OPENWRT}" "${OPENWRT_PATH}"
+          # 打印目录内容用于调试
+          ls -la "${OPENWRT_PATH}"
 
       - name: CCache 缓存加速编译
         uses: actions/cache@v4
@@ -52,7 +70,7 @@ jobs:
 
       - name: 导入配置并更新 defconfig
         run: |
-          CONFIG_FILE="${OPENWRT_PATH}/configs/${{ github.event.inputs.select_config }}"
+          CONFIG_FILE="${SRC_ROOT}/configs/${{ github.event.inputs.select_config }}"
           if [ ! -f "${CONFIG_FILE}" ]; then
             echo "ERROR: 配置文件不存在：${CONFIG_FILE}"
             exit 1
