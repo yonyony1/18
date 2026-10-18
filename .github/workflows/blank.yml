@@ -4,6 +4,15 @@ on:
   push:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      select_config:
+        description: 选择配置文件
+        required: true
+        default: openwrt-main.config
+        type: choice
+        options:
+          - openwrt-main.config
+          - openwrt-recovery.config
 
 env:
   TZ: Asia/Shanghai
@@ -13,11 +22,10 @@ env:
   OPENWRT_BRANCH: main
   SY108_REPO: https://github.com/yonyony1/sy108-mainline.git
   SY108_BRANCH: main
-  CONFIG_FILE: configs/udx710.config
 
 jobs:
   build:
-    name: Build UDX710 OpenWrt
+    name: Build UDX710 - ${{ github.event.inputs.select_config }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout 当前仓库（读取配置文件）
@@ -31,7 +39,7 @@ jobs:
 
       - name: 拉取 OpenWrt 主源码
         run: |
-          mkdir -p $OPENWRT_PATH
+          mkdir -p "$OPENWRT_PATH"
           git clone --depth 1 -b "$OPENWRT_BRANCH" "$OPENWRT_REPO" "$OPENWRT_PATH"
 
       - name: 拉取 sy108-mainline 并覆盖移植文件
@@ -43,7 +51,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: openwrt-sy108-udx710-${{ hashFiles('configs/udx710.config') }}
+          key: openwrt-sy108-udx710-${{ github.event.inputs.select_config }}-${{ hashFiles('configs/**') }}
           restore-keys: |
             openwrt-sy108-udx710-
         env:
@@ -51,6 +59,7 @@ jobs:
 
       - name: 导入配置并更新 defconfig
         run: |
+          CONFIG_FILE="configs/${{ github.event.inputs.select_config }}"
           if [ ! -f "${CONFIG_FILE}" ]; then
             echo "ERROR: 配置文件不存在：${CONFIG_FILE}"
             exit 1
@@ -79,7 +88,7 @@ jobs:
       - name: 上传固件产物
         uses: actions/upload-artifact@v4
         with:
-          name: openwrt-udx710-firmware
+          name: openwrt-udx710-${{ github.event.inputs.select_config }}
           path: |
             ${{ env.OPENWRT_PATH }}/bin/targets/sy108/armv8/
           if-no-files-found: error
