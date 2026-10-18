@@ -18,11 +18,8 @@ env:
   TZ: Asia/Shanghai
   OPENWRT_PATH: /opt/openwrt
   CCACHE_DIR: /opt/ccache
-  OPENWRT_REPO: https://git.openwrt.org/openwrt/openwrt.git
-  OPENWRT_BRANCH: main
   SY108_REPO: https://github.com/yonyony1/sy108-mainline.git
   SY108_BRANCH: main
-  SY108_TMP: /tmp/sy108-mainline
 
 jobs:
   build:
@@ -40,16 +37,10 @@ jobs:
           sudo mkdir -p "${OPENWRT_PATH}" "${CCACHE_DIR}"
           sudo chown -R runner:runner "${OPENWRT_PATH}" "${CCACHE_DIR}"
 
-      - name: 拉取 OpenWrt 主源码
+      - name: 拉取 sy108-mainline 主源码
         run: |
           rm -rf "${OPENWRT_PATH}"
-          git clone --depth 1 -b "${OPENWRT_BRANCH}" "${OPENWRT_REPO}" "${OPENWRT_PATH}"
-
-      - name: 拉取 sy108-mainline 并覆盖移植文件
-        run: |
-          rm -rf "${SY108_TMP}"
-          git clone --depth 1 -b "${SY108_BRANCH}" "${SY108_REPO}" "${SY108_TMP}"
-          rsync -av "${SY108_TMP}/" "${OPENWRT_PATH}/"
+          git clone --depth 1 -b "${SY108_BRANCH}" "${SY108_REPO}" "${OPENWRT_PATH}"
 
       - name: CCache 缓存加速编译
         uses: actions/cache@v4
@@ -63,7 +54,7 @@ jobs:
 
       - name: 导入配置并更新 defconfig
         run: |
-          CONFIG_FILE="${SY108_TMP}/configs/${{ github.event.inputs.select_config }}"
+          CONFIG_FILE="${OPENWRT_PATH}/configs/${{ github.event.inputs.select_config }}"
           if [ ! -f "${CONFIG_FILE}" ]; then
             echo "ERROR: 配置文件不存在：${CONFIG_FILE}"
             exit 1
