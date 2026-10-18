@@ -4,33 +4,16 @@ on:
   push:
     branches: [ main ]
   workflow_dispatch:
-    inputs:
-      openwrt_repo:
-        description: OpenWrt 上游仓库地址
-        required: true
-        default: https://git.openwrt.org/openwrt/openwrt.git
-      openwrt_branch:
-        description: OpenWrt 分支
-        required: true
-        default: main
-      sy108_repo:
-        description: sy108-mainline 移植仓库
-        required: true
-        default: https://github.com/yonyony1/sy108-mainline.git
-      sy108_branch:
-        description: sy108-mainline 分支
-        required: true
-        default: main
-      config_file:
-        description: 本仓库内 .config 路径
-        required: true
-        default: configs/udx710.config
 
 env:
   TZ: Asia/Shanghai
   OPENWRT_PATH: $HOME/openwrt
-  SWAP_SIZE: 4G
   CCACHE_DIR: $HOME/ccache
+  OPENWRT_REPO: https://git.openwrt.org/openwrt/openwrt.git
+  OPENWRT_BRANCH: main
+  SY108_REPO: https://github.com/yonyony1/sy108-mainline.git
+  SY108_BRANCH: main
+  CONFIG_FILE: configs/udx710.config
 
 jobs:
   build:
@@ -49,18 +32,18 @@ jobs:
       - name: 拉取 OpenWrt 主源码
         run: |
           mkdir -p $OPENWRT_PATH
-          git clone --depth 1 -b ${{ inputs.openwrt_branch }} ${{ inputs.openwrt_repo }} $OPENWRT_PATH
+          git clone --depth 1 -b "$OPENWRT_BRANCH" "$OPENWRT_REPO" "$OPENWRT_PATH"
 
       - name: 拉取 sy108-mainline 并覆盖移植文件
         run: |
-          git clone --depth 1 -b ${{ inputs.sy108_branch }} ${{ inputs.sy108_repo }} /tmp/sy108-mainline
-          rsync -av /tmp/sy108-mainline/ $OPENWRT_PATH/
+          git clone --depth 1 -b "$SY108_BRANCH" "$SY108_REPO" /tmp/sy108-mainline
+          rsync -av /tmp/sy108-mainline/ "$OPENWRT_PATH/"
 
       - name: CCache 缓存加速编译
         uses: actions/cache@v4
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: openwrt-sy108-udx710-${{ hashFiles('**/configs/udx710.config') }}
+          key: openwrt-sy108-udx710-${{ hashFiles('configs/udx710.config') }}
           restore-keys: |
             openwrt-sy108-udx710-
         env:
@@ -68,28 +51,28 @@ jobs:
 
       - name: 导入配置并更新 defconfig
         run: |
-          if [ ! -f "${{ inputs.config_file }}" ]; then
-            echo "ERROR: 配置文件不存在：${{ inputs.config_file }}"
+          if [ ! -f "${CONFIG_FILE}" ]; then
+            echo "ERROR: 配置文件不存在：${CONFIG_FILE}"
             exit 1
           fi
-          cp "${{ inputs.config_file }}" $OPENWRT_PATH/.config
-          cd $OPENWRT_PATH
+          cp "${CONFIG_FILE}" "${OPENWRT_PATH}/.config"
+          cd "${OPENWRT_PATH}"
           make defconfig
 
       - name: 更新 & 安装 feeds
         run: |
-          cd $OPENWRT_PATH
+          cd "${OPENWRT_PATH}"
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
       - name: 预下载所有源码包
         run: |
-          cd $OPENWRT_PATH
+          cd "${OPENWRT_PATH}"
           make download -j$(nproc)
 
       - name: 编译固件（多线程失败自动切单线程排错）
         run: |
-          cd $OPENWRT_PATH
+          cd "${OPENWRT_PATH}"
           echo "编译并发数: $(nproc)"
           make -j$(nproc) || make -j1 V=s
 
