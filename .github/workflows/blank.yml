@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       select_config:
-        description: 选择配置文件
+        description: 选择配置文件（来自 sy108-mainline）
         required: true
         default: openwrt-main.config
         type: choice
@@ -22,13 +22,14 @@ env:
   OPENWRT_BRANCH: main
   SY108_REPO: https://github.com/yonyony1/sy108-mainline.git
   SY108_BRANCH: main
+  SY108_TMP: /tmp/sy108-mainline
 
 jobs:
   build:
     name: Build UDX710 - ${{ github.event.inputs.select_config }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout 当前仓库（读取配置文件）
+      - name: Checkout 当前仓库（保留，可放自定义补丁/脚本）
         uses: actions/checkout@v4
 
       - name: 安装编译依赖
@@ -44,14 +45,15 @@ jobs:
 
       - name: 拉取 sy108-mainline 并覆盖移植文件
         run: |
-          git clone --depth 1 -b "$SY108_BRANCH" "$SY108_REPO" /tmp/sy108-mainline
-          rsync -av /tmp/sy108-mainline/ "$OPENWRT_PATH/"
+          rm -rf "$SY108_TMP"
+          git clone --depth 1 -b "$SY108_BRANCH" "$SY108_REPO" "$SY108_TMP"
+          rsync -av "$SY108_TMP/" "$OPENWRT_PATH/"
 
       - name: CCache 缓存加速编译
         uses: actions/cache@v4
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: openwrt-sy108-udx710-${{ github.event.inputs.select_config }}-${{ hashFiles('configs/**') }}
+          key: openwrt-sy108-udx710-${{ github.event.inputs.select_config }}
           restore-keys: |
             openwrt-sy108-udx710-
         env:
@@ -59,7 +61,7 @@ jobs:
 
       - name: 导入配置并更新 defconfig
         run: |
-          CONFIG_FILE="configs/${{ github.event.inputs.select_config }}"
+          CONFIG_FILE="${SY108_TMP}/configs/${{ github.event.inputs.select_config }}"
           if [ ! -f "${CONFIG_FILE}" ]; then
             echo "ERROR: 配置文件不存在：${CONFIG_FILE}"
             exit 1
