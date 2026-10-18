@@ -1,136 +1,112 @@
-name: JDCloud AX1800 jdcloud_re-ss-01 QModem RM500U
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+name: Build OpenWrt UDX710 SY108
+
 on:
-  workflow_dispatch:
   push:
     branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      openwrt_repo:
+        description: OpenWrt 上游仓库
+        required: true
+        default: https://git.openwrt.org/openwrt/openwrt.git
+      openwrt_branch:
+        description: OpenWrt 分支
+        required: true
+        default: main
+      sy108_repo:
+        description: sy108-mainline 移植仓库
+        required: true
+        default: https://github.com/yonyony1/sy108-mainline.git
+      sy108_branch:
+        description: sy108-mainline 分支
+        required: true
+        default: main
+      config_file:
+        description: .config 路径（仓库内）
+        required: true
+        default: configs/udx710.config
+
+env:
+  TZ: Asia/Shanghai
+  OPENWRT_PATH: /mnt/openwrt
+  SWAP_SIZE: 4G
+  CCACHE_DIR: /mnt/ccache
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
-    env:
-      TERM: dumb
-      CONFIG_NON_INTERACTIVE: 1
-    timeout-minutes: 360
+    name: Build UDX710 OpenWrt
+    runs-on: ubuntu-latest
     steps:
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update -y
-          sudo apt-get full-upgrade -y
-          sudo apt-get install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
-            bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex gawk gettext gcc-multilib \
-            g++-multilib git gnutls-dev gperf haveged help2man intltool lib32gcc-s1 libc6-dev-i386 libelf-dev \
-            libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses-dev libreadline-dev \
-            libssl-dev libtool libyaml-dev lld llvm lrzsz mkisofs msmtp nano ninja-build p7zip-full patch pkgconf \
-            python3 python3-pip python3-ply python3-docutils python3-pyelftools qemu-utils re2c rsync scons \
-            squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip wget xmlto xxd zlib1g-dev
-          git config --global core.askpass ""
-          git config --global credential.helper ""
+      - name: Checkout 本仓库（读取config）
+        uses: actions/checkout@v4
 
-      - name: Cache ccache
+      - name: 安装基础依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential flex bison git libssl-dev libelf-dev \
+            ncurses-dev python3 python3-pip unzip wget rsync file cpio ccache
+
+      - name: 创建 Swap（防止OOM，fallocate不稳定改用dd）
+        run: |
+          sudo dd if=/dev/zero of=/swapfile bs=1G count=4 status=progress
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
+
+      - name: 拉取 OpenWrt 主源码
+        run: |
+          mkdir -p $OPENWRT_PATH
+          git clone --depth 1 ${{ inputs.openwrt_repo }} -b ${{ inputs.openwrt_branch }} $OPENWRT_PATH
+
+      - name: 拉取 sy108-mainline 移植包并覆盖到 OpenWrt
+        run: |
+          git clone --depth 1 ${{ inputs.sy108_repo }} -b ${{ inputs.sy108_branch }} /tmp/sy108-mainline
+          rsync -av /tmp/sy108-mainline/ $OPENWRT_PATH/
+
+      - name: CCache 缓存配置
         uses: actions/cache@v4
         with:
-          path: ~/.ccache
-          key: ax1800-qmodem-ccache
+          path: ${{ env.CCACHE_DIR }}
+          key: openwrt-sy108-udx710-${{ hashFiles('**/configs/udx710.config') }}
+          restore-keys: |
+            openwrt-sy108-udx710-
+        env:
+          CCACHE_MAXSIZE: 10G
 
-      - name: Clone VIKINGYFY/immortalwrt
+      - name: 导入 .config
         run: |
-          git clone --depth 1 --branch main https://github.com/VIKINGYFY/immortalwrt openwrt
-          cd openwrt
-          test -d target/linux/qualcommax || exit 1
+          if [ -f "${{ inputs.config_file }}" ]; then
+            cp "${{ inputs.config_file }}" $OPENWRT_PATH/.config
+          else
+            echo "❌ 找不到配置文件：${{ inputs.config_file }}"
+            exit 1
+          fi
+          cd $OPENWRT_PATH
+          make defconfig
 
-      - name: Feeds configure & update & install
+      - name: 更新 & 安装 feeds
         run: |
-          cd $GITHUB_WORKSPACE/openwrt
-          cat > feeds.conf.default <<-'EOF'
-          src-git packages https://github.com/immortalwrt/packages.git
-          src-git luci https://github.com/immortalwrt/luci.git
-          src-git routing https://github.com/openwrt/routing.git
-          src-git telephony https://github.com/openwrt/telephony.git
-          src-git qmodem https://github.com/FUjr/QModem.git;main
-          EOF
+          cd $OPENWRT_PATH
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-          # 删除造成递归依赖的源码，让Kconfig看不到这两个选项
-          rm -rf feeds/packages/net/clixon
-          rm -rf package/network/utils/nftables-nojson
-
-      - name: Generate defconfig && sed modify .config
+      - name: 预下载源码
         run: |
-          cd $GITHUB_WORKSPACE/openwrt
-          rm -rf tmp/ .config*
-          make defconfig CONFIG_NON_INTERACTIVE=1
+          cd $OPENWRT_PATH
+          make download -j$(nproc)
 
-          # sed开启目标设备与需要包，直接写进.config
-          sed -i 's/# CONFIG_TARGET_qualcommax is not set/CONFIG_TARGET_qualcommax=y/' .config
-          sed -i 's/# CONFIG_TARGET_qualcommax_ipq60xx is not set/CONFIG_TARGET_qualcommax_ipq60xx=y/' .config
-          sed -i 's/# CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_ss_01 is not set/CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_ss_01=y/' .config
-
-          sed -i 's/# CONFIG_PACKAGE_ppp is not set/CONFIG_PACKAGE_ppp=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_ppp-mod-pppoe is not set/CONFIG_PACKAGE_ppp-mod-pppoe=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_ip-full is not set/CONFIG_PACKAGE_ip-full=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_ip6tables is not set/CONFIG_PACKAGE_ip6tables=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_iptables is not set/CONFIG_PACKAGE_iptables=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_kmod-ipt-nat is not set/CONFIG_PACKAGE_kmod-ipt-nat=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_kmod-ipt-nat6 is not set/CONFIG_PACKAGE_kmod-ipt-nat6=y/' .config
-
-          sed -i 's/# CONFIG_PACKAGE_kmod-usb-core is not set/CONFIG_PACKAGE_kmod-usb-core=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_kmod-usb-serial is not set/CONFIG_PACKAGE_kmod-usb-serial=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_kmod-usb-serial-option is not set/CONFIG_PACKAGE_kmod-usb-serial-option=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_kmod-usb-serial-wwan is not set/CONFIG_PACKAGE_kmod-usb-serial-wwan=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_kmod-usb-net is not set/CONFIG_PACKAGE_kmod-usb-net=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_kmod-usb-net-cdc-ecm is not set/CONFIG_PACKAGE_kmod-usb-net-cdc-ecm=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_kmod-usb-net-rndis is not set/CONFIG_PACKAGE_kmod-usb-net-rndis=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_kmod-usb-net-qmi-wwan is not set/CONFIG_PACKAGE_kmod-usb-net-qmi-wwan=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_kmod-usb-net-cdc-mbim is not set/CONFIG_PACKAGE_kmod-usb-net-cdc-mbim=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_kmod-usb-net-huawei-cdc-ncm is not set/CONFIG_PACKAGE_kmod-usb-net-huawei-cdc-ncm=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_kmod-usb-storage is not set/CONFIG_PACKAGE_kmod-usb-storage=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_kmod-usb-storage-uas is not set/CONFIG_PACKAGE_kmod-usb-storage-uas=y/' .config
-
-          sed -i 's/# CONFIG_PACKAGE_curl is not set/CONFIG_PACKAGE_curl=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_usbutils is not set/CONFIG_PACKAGE_usbutils=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_socat is not set/CONFIG_PACKAGE_socat=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_nano is not set/CONFIG_PACKAGE_nano=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_tc is not set/CONFIG_PACKAGE_tc=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_iperf3 is not set/CONFIG_PACKAGE_iperf3=y/' .config
-
-          sed -i 's/# CONFIG_PACKAGE_kmod-fs-ext4 is not set/CONFIG_PACKAGE_kmod-fs-ext4=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_kmod-fs-vfat is not set/CONFIG_PACKAGE_kmod-fs-vfat=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_kmod-fs-exfat is not set/CONFIG_PACKAGE_kmod-fs-exfat=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_ntfs-3g is not set/CONFIG_PACKAGE_ntfs-3g=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_block-mount is not set/CONFIG_PACKAGE_block-mount=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_fdisk is not set/CONFIG_PACKAGE_fdisk=y/' .config
-
-          sed -i 's/# CONFIG_PACKAGE_qmodem is not set/CONFIG_PACKAGE_qmodem=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_luci-app-qmodem-next is not set/CONFIG_PACKAGE_luci-app-qmodem-next=y/' .config
-          sed -i 's/# CONFIG_NSS_FIRMWARE is not set/CONFIG_NSS_FIRMWARE=y/' .config
-
-          # 归一化配置，自动清理无效选项
-          make defconfig CONFIG_NON_INTERACTIVE=1
-
-          echo "==== Verify config ===="
-          grep -E "CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re_ss_01|CONFIG_PACKAGE_qmodem" .config
-
-      - name: Build firmware
+      - name: 编译固件
         run: |
-          cd $GITHUB_WORKSPACE/openwrt
-          export CCACHE_DIR=~/.ccache
-          export CCACHE_COMPRESS=1
-          ccache -M 4G
-          ccache -z
-          make -j1 V=s 2>&1 | tee build.log
-          ccache -s
+          cd $OPENWRT_PATH
+          echo "🧵 线程数：$(nproc)"
+          make -j$(nproc) || make -j1 V=s
 
-      - name: Artifact upload
+      - name: 上传固件 Artifact
         uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: AX1800-QModem-RM500U-Firmware
+          name: openwrt-udx710-firmware
           path: |
-            openwrt/build.log
-            openwrt/.config
-            openwrt/bin/targets/qualcommax/ipq60xx
-          retention-days: 7
+            ${{ env.OPENWRT_PATH }}/bin/targets/sy108/armv8/
+          if-no-files-found: error
+          retention-days: 14
