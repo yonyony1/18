@@ -36,7 +36,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential flex bison git libssl-dev libelf-dev \
-            ncurses-dev python3 python3-pip unzip wget rsync file ccache
+            ncurses-dev python3 python3-pip unzip wget rsync file ccache swig
           sudo mkdir -p "${OPENWRT_PATH}" "${SY108_PATH}" "${CCACHE_DIR}"
           sudo chown -R runner:runner "${OPENWRT_PATH}" "${SY108_PATH}" "${CCACHE_DIR}"
 
@@ -77,7 +77,7 @@ jobs:
         env:
           CCACHE_MAXSIZE: 10G
 
-      - name: 导入配置 + defconfig + 静默同步内核Kconfig
+      - name: 导入配置 + 清理dnsmasq循环依赖 + defconfig + 静默同步内核Kconfig
         run: |
           CONFIG_FILE="${SY108_PATH}/configs/${{ github.event.inputs.select_config }}"
           if [ ! -f "${CONFIG_FILE}" ]; then
@@ -86,10 +86,11 @@ jobs:
           fi
           cp "${CONFIG_FILE}" "${OPENWRT_PATH}/.config"
           cd "${OPENWRT_PATH}"
+          # 移除会造成循环依赖的 dnsmasq_full_ipset
+          sed -i '/CONFIG_PACKAGE_dnsmasq_full_ipset/d' .config
           make defconfig
-          # 静默同步内核配置，新增内核选项默认选 N，杜绝交互弹窗
           make -j1 kernel_olddefconfig
-          grep -E "CONFIG_TARGET_|CONFIG_SUBTARGET" .config
+          grep -E "CONFIG_TARGET_|CONFIG_SUBTARGET|CONFIG_PACKAGE_dnsmasq" .config
 
       - name: feeds update & install
         run: |
