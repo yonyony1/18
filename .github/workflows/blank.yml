@@ -1,10 +1,10 @@
-name: Build OpenWrt UDX710 SY108
+name: Build UDX710 SY108
 
 on:
   workflow_dispatch:
     inputs:
       select_config:
-        description: 选择配置文件（来自 sy108-mainline）
+        description: 选择配置文件
         required: true
         default: openwrt-main.config
         type: choice
@@ -14,92 +14,102 @@ on:
 
 env:
   TZ: Asia/Shanghai
-  SRC_ROOT: /opt/sy108-src
   OPENWRT_PATH: /opt/openwrt
+  SY108_PATH: /opt/sy108-mainline
   CCACHE_DIR: /opt/ccache
+  # 仓库地址
+  OPENWRT_REPO: https://git.openwrt.org/openwrt/openwrt.git
   SY108_REPO: https://github.com/yonyony1/sy108-mainline.git
-  SY108_BRANCH: main
+  LINUX_UDX710_REPO: https://github.com/yonyony1/linux-udx710.git
+  UBOOT_SY108_REPO: https://github.com/yonyony1/sy108-uboot-spl.git
+  BRANCH: main
 
 jobs:
   build:
-    name: Build UDX710 - ${{ github.event.inputs.select_config }}
+    name: UDX710 - ${{ github.event.inputs.select_config }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout 当前仓库
         uses: actions/checkout@v4
 
-      - name: 安装编译依赖 + 准备目录权限
+      - name: 安装依赖 & 初始化目录权限
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential flex bison git libssl-dev libelf-dev \
             ncurses-dev python3 python3-pip unzip wget rsync file cpio ccache
-          sudo mkdir -p "${SRC_ROOT}" "${OPENWRT_PATH}" "${CCACHE_DIR}"
-          sudo chown -R runner:runner "${SRC_ROOT}" "${OPENWRT_PATH}" "${CCACHE_DIR}"
+          sudo mkdir -p "${OPENWRT_PATH}" "${SY108_PATH}" "${CCACHE_DIR}"
+          sudo chown -R runner:runner "${OPENWRT_PATH}" "${SY108_PATH}" "${CCACHE_DIR}"
 
-      - name: 拉取 sy108-mainline 仓库
+      - name: 拉取基础 OpenWrt
         run: |
-          rm -rf "${SRC_ROOT}"
-          git clone --depth 1 -b "${SY108_BRANCH}" "${SY108_REPO}" "${SRC_ROOT}"
-
-      - name: 定位真实 OpenWrt 源码目录并复制
-        run: |
-          # 查找包含顶层 Makefile + scripts/config 的目录
-          REAL_OPENWRT=$(find "${SRC_ROOT}" -type f -name Makefile | while read mk; do
-            d=$(dirname "$mk")
-            if [ -d "$d/scripts/config" ]; then echo "$d"; break; fi
-          done)
-          if [ -z "${REAL_OPENWRT}" ]; then
-            echo "❌ 找不到 OpenWrt 源码目录"
-            exit 1
-          fi
-          echo "✅ 找到 OpenWrt 源码：${REAL_OPENWRT}"
           rm -rf "${OPENWRT_PATH}"
-          cp -r "${REAL_OPENWRT}" "${OPENWRT_PATH}"
-          # 打印目录内容用于调试
+          git clone --depth 1 "${OPENWRT_REPO}" "${OPENWRT_PATH}"
+
+      - name: 拉取 sy108-mainline（补丁、配置、脚本）
+        run: |
+          rm -rf "${SY108_PATH}"
+          git clone --depth 1 -b "${BRANCH}" "${SY108_REPO}" "${SY108_PATH}"
+
+      - name: 拉取 linux-udx710 内核 & sy108-uboot-spl
+        run: |
+          git clone --depth 1 "${LINUX_UDX710_REPO}" "${SY108_PATH}/linux-udx710"
+          git clone --depth 1 "${UBOOT_SY108_REPO}" "${SY108_PATH}/sy108-uboot-spl"
+
+      - name: 应用 sy108 移植（补丁/替换target/内核/uboot）
+        run: |
+          # 这里按 sy108-mainline 的移植逻辑覆盖/打补丁
+          # 如果它自带 apply.sh / patch.sh 就直接调用
+          if [ -f "${SY108_PATH}/apply.sh" ]; then
+            cd "${OPENWRT_PATH}"
+            bash "${SY108_PATH}/apply.sh"
+          else
+            # 兜底 rsync 复制仓库内补丁层
+            rsync -av --exclude=.git "${SY108_PATH}/" "${OPENWRT_PATH}/"
+          fi
           ls -la "${OPENWRT_PATH}"
 
-      - name: CCache 缓存加速编译
+      - name: CCache 缓存
         uses: actions/cache@v4
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: openwrt-sy108-udx710-${{ github.event.inputs.select_config }}
+          key: udx710-sy108-${{ github.event.inputs.select_config }}
           restore-keys: |
-            openwrt-sy108-udx710-
+            udx710-sy108-
         env:
           CCACHE_MAXSIZE: 10G
 
-      - name: 导入配置并更新 defconfig
+      - name: 导入配置 + defconfig
         run: |
-          CONFIG_FILE="${SRC_ROOT}/configs/${{ github.event.inputs.select_config }}"
+          CONFIG_FILE="${SY108_PATH}/configs/${{ github.event.inputs.select_config }}"
           if [ ! -f "${CONFIG_FILE}" ]; then
-            echo "ERROR: 配置文件不存在：${CONFIG_FILE}"
+            echo "❌ 配置不存在：${CONFIG_FILE}"
             exit 1
           fi
           cp "${CONFIG_FILE}" "${OPENWRT_PATH}/.config"
           cd "${OPENWRT_PATH}"
           make defconfig
 
-      - name: 更新 & 安装 feeds
+      - name: feeds update & install
         run: |
           cd "${OPENWRT_PATH}"
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 预下载所有源码包
+      - name: make download
         run: |
           cd "${OPENWRT_PATH}"
           make download -j$(nproc)
 
-      - name: 编译固件（多线程失败自动切单线程排错）
+      - name: 编译固件
         run: |
           cd "${OPENWRT_PATH}"
-          echo "编译并发数: $(nproc)"
+          echo "线程：$(nproc)"
           make -j$(nproc) || make -j1 V=s
 
       - name: 上传固件产物
         uses: actions/upload-artifact@v4
         with:
-          name: openwrt-udx710-${{ github.event.inputs.select_config }}
+          name: udx710-${{ github.event.inputs.select_config }}
           path: |
             ${{ env.OPENWRT_PATH }}/bin/targets/sy108/armv8/
           if-no-files-found: error
