@@ -57,16 +57,15 @@ jobs:
 
       - name: 应用 sy108 移植（补丁/替换target/内核/uboot）
         run: |
-          # 这里按 sy108-mainline 的移植逻辑覆盖/打补丁
-          # 如果它自带 apply.sh / patch.sh 就直接调用
           if [ -f "${SY108_PATH}/apply.sh" ]; then
             cd "${OPENWRT_PATH}"
             bash "${SY108_PATH}/apply.sh"
           else
-            # 兜底 rsync 复制仓库内补丁层
             rsync -av --exclude=.git "${SY108_PATH}/" "${OPENWRT_PATH}/"
           fi
-          ls -la "${OPENWRT_PATH}"
+          # ✅ 关键：删除原版 mediatek target，避免编译 OpenWrt One
+          rm -rf "${OPENWRT_PATH}/target/linux/mediatek"
+          ls -la "${OPENWRT_PATH}/target/linux/"
 
       - name: CCache 缓存
         uses: actions/cache@v4
@@ -88,6 +87,8 @@ jobs:
           cp "${CONFIG_FILE}" "${OPENWRT_PATH}/.config"
           cd "${OPENWRT_PATH}"
           make defconfig
+          # 打印目标，用来调试确认是不是 sy108
+          grep -E "CONFIG_TARGET_|CONFIG_SUBTARGET" .config
 
       - name: feeds update & install
         run: |
