@@ -1,119 +1,156 @@
-name: Build UDX710 SY108
+name: Build SY108 / UDX710 Firmware
 
 on:
   workflow_dispatch:
     inputs:
-      select_config:
-        description: 选择配置文件
-        required: true
-        default: openwrt-main.config
-        type: choice
-        options:
-          - openwrt-main.config
-          - openwrt-recovery.config
+      rebuild_all:
+        description: 强制全量重建（清空构建树）
+        required: false
+        type: boolean
+        default: false
+      ccache_enable:
+        description: 启用CCache缓存
+        required: false
+        type: boolean
+        default: true
 
 env:
   TZ: Asia/Shanghai
-  OPENWRT_PATH: /opt/openwrt
-  SY108_PATH: /opt/sy108-mainline
-  CCACHE_DIR: /opt/ccache
-  # 仓库地址
-  OPENWRT_REPO: https://git.openwrt.org/openwrt/openwrt.git
-  SY108_REPO: https://github.com/yonyony1/sy108-mainline.git
-  LINUX_UDX710_REPO: https://github.com/yonyony1/linux-udx710.git
-  UBOOT_SY108_REPO: https://github.com/yonyony1/sy108-uboot-spl.git
-  BRANCH: main
+  WORK_ROOT: ${{ github.workspace }}
+  REPO_MAIN: ${{ github.workspace }}
+  OUT_DIR: ${{ github.workspace }}/out
+  # uboot-spl 仓库地址
+  UBOOT_SPL_REPO: https://github.com/yonyony1/sy108-uboot-spl.git
+  UBOOT_SPL_PATH: ${{ github.workspace }}/uboot-spl
+  # 原始 SPL/SML 二进制（如果你需要内置，可以放到仓库 assets 目录；也可改成 release 下载）
+  ORIG_SPL: ${{ github.workspace }}/assets/original-spl.bin
+  ORIG_SML: ${{ github.workspace }}/assets/original-sml.bin
 
 jobs:
-  build:
-    name: UDX710 - ${{ github.event.inputs.select_config }}
-    runs-on: ubuntu-latest
+  build-firmware:
+    name: Build Main + Recovery Firmware
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout 当前仓库
+      - name: Checkout sy108-mainline
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: 安装依赖 & 初始化目录权限
+      - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential flex bison git libssl-dev libelf-dev \
-            ncurses-dev python3 python3-pip unzip wget rsync file ccache swig
-          sudo mkdir -p "${OPENWRT_PATH}" "${SY108_PATH}" "${CCACHE_DIR}"
-          sudo chown -R runner:runner "${OPENWRT_PATH}" "${SY108_PATH}" "${CCACHE_DIR}"
+          sudo apt-get install -y --no-install-recommends \
+            build-essential flex bison git libssl-dev libelf-dev \
+            ncurses-dev python3 python3-pip python3-venv \
+            unzip wget rsync file ccache swig \
+            docker.io qemu-user
+          # 升级pip
+          python3 -m pip install --upgrade pip
 
-      - name: 拉取基础 OpenWrt
+      - name: Prepare Python environment
         run: |
-          rm -rf "${OPENWRT_PATH}"
-          git clone --depth 1 "${OPENWRT_REPO}" "${OPENWRT_PATH}"
+          python3 -m pip install -r requirements.txt || true
 
-      - name: 拉取 sy108-mainline（补丁、配置、脚本）
-        run: |
-          rm -rf "${SY108_PATH}"
-          git clone --depth 1 -b "${BRANCH}" "${SY108_REPO}" "${SY108_PATH}"
-
-      - name: 拉取 linux-udx710 内核 & sy108-uboot-spl
-        run: |
-          git clone --depth 1 "${LINUX_UDX710_REPO}" "${SY108_PATH}/linux-udx710"
-          git clone --depth 1 "${UBOOT_SY108_REPO}" "${SY108_PATH}/sy108-uboot-spl"
-
-      - name: 应用 sy108 移植（补丁/替换target/内核/uboot）
-        run: |
-          if [ -f "${SY108_PATH}/apply.sh" ]; then
-            cd "${OPENWRT_PATH}"
-            bash "${SY108_PATH}/apply.sh"
-          else
-            rsync -av --exclude=.git "${SY108_PATH}/" "${OPENWRT_PATH}/"
-          fi
-          # 删除原版 mediatek target，避免编译 OpenWrt One
-          rm -rf "${OPENWRT_PATH}/target/linux/mediatek"
-          ls -la "${OPENWRT_PATH}/target/linux/"
-
-      - name: CCache 缓存
+      - name: Setup CCache
+        if: inputs.ccache_enable
         uses: actions/cache@v4
         with:
-          path: ${{ env.CCACHE_DIR }}
-          key: udx710-sy108-${{ github.event.inputs.select_config }}
+          path: ~/.ccache
+          key: sy108-ccache-${{ github.sha }}
           restore-keys: |
-            udx710-sy108-
+            sy108-ccache-
         env:
-          CCACHE_MAXSIZE: 10G
+          CCACHE_DIR: ~/.ccache
+          CCACHE_MAXSIZE: 12G
+          CCACHE_COMPRESS: true
 
-      - name: 导入配置 + 清理dnsmasq循环依赖 + defconfig + 静默同步内核Kconfig
+      - name: Clean full build tree (if requested)
+        if: inputs.rebuild_all
         run: |
-          CONFIG_FILE="${SY108_PATH}/configs/${{ github.event.inputs.select_config }}"
-          if [ ! -f "${CONFIG_FILE}" ]; then
-            echo "❌ 配置不存在：${CONFIG_FILE}"
-            exit 1
-          fi
-          cp "${CONFIG_FILE}" "${OPENWRT_PATH}/.config"
-          cd "${OPENWRT_PATH}"
-          # 移除会造成循环依赖的 dnsmasq_full_ipset
-          sed -i '/CONFIG_PACKAGE_dnsmasq_full_ipset/d' .config
-          make defconfig
-          make -j1 kernel_olddefconfig
-          grep -E "CONFIG_TARGET_|CONFIG_SUBTARGET|CONFIG_PACKAGE_dnsmasq" .config
+          rm -rf ${{ env.OUT_DIR }}
 
-      - name: feeds update & install
+      - name: Bootstrap OpenWrt build tree
         run: |
-          cd "${OPENWRT_PATH}"
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+          python3 tools/bootstrap.py
+        working-directory: ${{ env.REPO_MAIN }}
 
-      - name: make download
+      - name: Build MAIN firmware
         run: |
-          cd "${OPENWRT_PATH}"
-          make download -j$(nproc)
+          python3 firmware.py main
+        working-directory: ${{ env.REPO_MAIN }}
 
-      - name: 编译固件
+      - name: Build RECOVERY firmware
         run: |
-          cd "${OPENWRT_PATH}"
-          echo "编译线程：$(nproc)"
-          make -j$(nproc) || make -j1 V=s
+          python3 firmware.py recovery
+        working-directory: ${{ env.REPO_MAIN }}
 
-      - name: 上传固件产物
+      - name: Upload MAIN firmware artifact
         uses: actions/upload-artifact@v4
         with:
-          name: udx710-${{ github.event.inputs.select_config }}
+          name: sy108-main-firmware
+          path: ${{ env.OUT_DIR }}/images/main/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload RECOVERY firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sy108-recovery-firmware
+          path: ${{ env.OUT_DIR }}/images/recovery/
+          if-no-files-found: error
+          retention-days: 14
+
+  build-uboot-spl:
+    name: Build & Verify U-Boot SPL
+    needs: build-firmware
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout main repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download MAIN firmware
+        uses: actions/download-artifact@v4
+        with:
+          name: sy108-main-firmware
+          path: ${{ env.OUT_DIR }}/images/main
+
+      - name: Download RECOVERY firmware
+        uses: actions/download-artifact@v4
+        with:
+          name: sy108-recovery-firmware
+          path: ${{ env.OUT_DIR }}/images/recovery
+
+      - name: Clone sy108-uboot-spl
+        run: |
+          rm -rf ${{ env.UBOOT_SPL_PATH }}
+          git clone --depth 1 ${{ env.UBOOT_SPL_REPO }} ${{ env.UBOOT_SPL_PATH }}
+
+      - name: Check original SPL/SML binaries
+        run: |
+          if [ ! -f "${{ env.ORIG_SPL }}" ] || [ ! -f "${{ env.ORIG_SML }}" ]; then
+            echo "ERROR: Missing original-spl.bin / original-sml.bin in assets/"
+            exit 1
+          fi
+          ls -la ${{ env.ORIG_SPL }} ${{ env.ORIG_SML }}
+          ls -la ${{ env.OUT_DIR }}/images/main/boot.bin ${{ env.OUT_DIR }}/images/recovery/boot.bin
+
+      - name: Build U-Boot offline + QEMU/Unicorn verify
+        run: |
+          cd ${{ env.UBOOT_SPL_PATH }}
+          make offline LABEL=mainline \
+            SPL_IMAGE=${{ env.ORIG_SPL }} \
+            SML_IMAGE=${{ env.ORIG_SML }} \
+            MAIN_CAPSULE=${{ env.OUT_DIR }}/images/main/boot.bin \
+            RECOVERY_CAPSULE=${{ env.OUT_DIR }}/images/recovery/boot.bin
+
+      - name: Upload U-Boot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sy108-uboot-spl
           path: |
-            ${{ env.OPENWRT_PATH }}/bin/targets/sy108/armv8/
+            ${{ env.UBOOT_SPL_PATH }}/build/mainline/uboot.bin
+            ${{ env.UBOOT_SPL_PATH }}/offline-report.json
           if-no-files-found: error
           retention-days: 14
