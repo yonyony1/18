@@ -36,7 +36,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential flex bison git libssl-dev libelf-dev \
-            ncurses-dev python3 python3-pip unzip wget rsync file cpio ccache
+            ncurses-dev python3 python3-pip unzip wget rsync file ccache
           sudo mkdir -p "${OPENWRT_PATH}" "${SY108_PATH}" "${CCACHE_DIR}"
           sudo chown -R runner:runner "${OPENWRT_PATH}" "${SY108_PATH}" "${CCACHE_DIR}"
 
@@ -63,7 +63,7 @@ jobs:
           else
             rsync -av --exclude=.git "${SY108_PATH}/" "${OPENWRT_PATH}/"
           fi
-          # ✅ 关键：删除原版 mediatek target，避免编译 OpenWrt One
+          # 删除原版 mediatek target，避免编译 OpenWrt One
           rm -rf "${OPENWRT_PATH}/target/linux/mediatek"
           ls -la "${OPENWRT_PATH}/target/linux/"
 
@@ -77,7 +77,7 @@ jobs:
         env:
           CCACHE_MAXSIZE: 10G
 
-      - name: 导入配置 + defconfig
+      - name: 导入配置 + defconfig + 静默同步内核Kconfig
         run: |
           CONFIG_FILE="${SY108_PATH}/configs/${{ github.event.inputs.select_config }}"
           if [ ! -f "${CONFIG_FILE}" ]; then
@@ -87,7 +87,8 @@ jobs:
           cp "${CONFIG_FILE}" "${OPENWRT_PATH}/.config"
           cd "${OPENWRT_PATH}"
           make defconfig
-          # 打印目标，用来调试确认是不是 sy108
+          # 静默同步内核配置，新增内核选项默认选 N，杜绝交互弹窗
+          make -j1 kernel_olddefconfig
           grep -E "CONFIG_TARGET_|CONFIG_SUBTARGET" .config
 
       - name: feeds update & install
@@ -104,7 +105,7 @@ jobs:
       - name: 编译固件
         run: |
           cd "${OPENWRT_PATH}"
-          echo "线程：$(nproc)"
+          echo "编译线程：$(nproc)"
           make -j$(nproc) || make -j1 V=s
 
       - name: 上传固件产物
