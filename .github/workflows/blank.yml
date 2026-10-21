@@ -1,7 +1,6 @@
 name: Mirror OpenWrt upstream
 on:
-  workflow_dispatch    # 仅支持网页手动触发，移除 schedule 就不会自动执行
-
+  workflow_dispatch
 jobs:
   mirror:
     runs-on: ubuntu-latest
@@ -13,3 +12,18 @@ jobs:
           git clone --bare "$UPSTREAM_URL" upstream.git
           cd upstream.git
           git push --mirror "https://github.com/${{ github.repository }}.git"
+
+      - name: Verify tag v25.12.5 commit
+        env:
+          EXPECT_COMMIT: "5b8554a95eee055c5bee96f6f2dfd3beb241e0e7"
+          TAG_NAME: "v25.12.5"
+        run: |
+          git clone --depth 1 --bare https://github.com/${{ github.repository }}.git check.git
+          cd check.git
+          GOT=$(git rev-parse refs/tags/${TAG_NAME}^{commit})
+          echo "Tag ${TAG_NAME} commit: ${GOT}"
+          if [ "${GOT}" != "${EXPECT_COMMIT}" ]; then
+            echo "❌ Commit mismatch!"
+            exit 1
+          fi
+          echo "✅ Tag commit match expected hash"
