@@ -18,14 +18,16 @@ jobs:
         run: |
           git clone --bare "$UPSTREAM_URL" upstream.git
           cd upstream.git
-          git push --mirror "https://${GH_TOKEN}@github.com/${{ github.repository }}.git"
+          # 重点：用户名固定 x-access-token，密码是token
+          git push --mirror "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
 
       - name: Verify tag and commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git clone --bare "https://${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" check.git
+          git clone --bare "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" check.git
           cd check.git
           
-          # 获取标签指向的真实 commit
           GOT_COMMIT=$(git rev-parse "refs/tags/${EXPECT_TAG}^{commit}")
           
           echo "Tag: ${EXPECT_TAG}"
