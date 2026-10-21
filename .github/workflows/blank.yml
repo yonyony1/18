@@ -1,4 +1,4 @@
-name: Fetch OpenWrt v25.12.5
+name: Fetch OpenWrt by commit
 on:
   workflow_dispatch
 
@@ -9,31 +9,35 @@ jobs:
       contents: write
     env:
       UPSTREAM_URL: "https://git.openwrt.org/openwrt/openwrt.git"
-      EXPECT_TAG: "v25.12.5"
-      EXPECT_COMMIT: "5b8554a95eee055c5bee96f6f2dfd3beb241e0e7"
+      TARGET_COMMIT: "5b8554a95eee055c5bee96f6f2dfd3beb241e0e7"
+      TAG_NAME: "v25.12.5-custom"
+      BRANCH_NAME: "openwrt-5b8554a"
     steps:
-      - name: Checkout upstream tag
+      - name: Fetch target commit from upstream
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git clone --no-tags "$UPSTREAM_URL" src
           cd src
-          git fetch origin tag "${EXPECT_TAG}"
-          git checkout tags/"${EXPECT_TAG}"
+          # 直接拉取指定commit
+          git fetch origin "${TARGET_COMMIT}"
+          git checkout "${TARGET_COMMIT}"
+
           GOT=$(git rev-parse HEAD)
-          echo "Fetched tag ${EXPECT_TAG}, commit: ${GOT}"
-          if [[ "${GOT}" != "${EXPECT_COMMIT}" ]]; then
+          echo "Fetched commit: ${GOT}"
+          if [[ "${GOT}" != "${TARGET_COMMIT}" ]]; then
             echo "❌ Commit mismatch!"
             exit 1
           fi
-          echo "✅ Commit verified"
+          echo "✅ Commit verified OK"
 
-          # 推送到自己仓库，创建一个分支保存这个版本
+          # 设置远程为你的github仓库并推送分支
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
-          git push -f origin HEAD:openwrt-v25.12.5
-          # 同时在你的仓库打上这个tag
-          git tag -f "${EXPECT_TAG}"
-          git push -f origin tag "${EXPECT_TAG}"
+          git push -f origin HEAD:"${BRANCH_NAME}"
+
+          # 打自定义tag并推送tag
+          git tag -f "${TAG_NAME}"
+          git push -f origin tag "${TAG_NAME}"
 
       - name: Final verify
         env:
@@ -41,10 +45,10 @@ jobs:
         run: |
           git clone --bare "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" check.git
           cd check.git
-          GOT=$(git rev-parse "refs/tags/${EXPECT_TAG}^{commit}")
-          echo "Tag ${EXPECT_TAG} -> ${GOT}"
-          if [[ "${GOT}" == "${EXPECT_COMMIT}" ]]; then
-            echo "✅ 最终校验通过"
+          GOT=$(git rev-parse "refs/tags/${TAG_NAME}^{commit}")
+          echo "Tag ${TAG_NAME} -> ${GOT}"
+          if [[ "${GOT}" == "${TARGET_COMMIT}" ]]; then
+            echo "✅ 最终校验通过，tag指向目标commit"
           else
             echo "❌ 最终校验失败"
             exit 1
